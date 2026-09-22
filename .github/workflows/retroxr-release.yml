@@ -329,8 +329,12 @@ jobs:
             echo "$lib is not ${{ matrix.arch }}"
             exit 1
           fi
+          # otool -L lists the library's own install name among its dependents,
+          # so that line is dropped by name; everything else must be the system.
+          # (Foundation is expected: mGBA's CMake links it on every Apple build.)
           otool -L "$lib"
-          if otool -L "$lib" | tail -n +2 | grep -Ev '^[[:space:]]*/(usr/lib|System/Library)/'; then
+          if otool -L "$lib" | tail -n +2 | grep -v '@rpath/mgba_libretro\.dylib ' \
+               | grep -Ev '^[[:space:]]*/(usr/lib|System/Library)/'; then
             echo "FATAL: $lib links a library outside the system"
             exit 1
           fi
