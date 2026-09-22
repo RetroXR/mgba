@@ -1,5 +1,5 @@
-# Build the retroXR mGBA core for Windows and Android and publish it as a
-# release, so retroXR's CoreDownloadManager can fetch it.
+# Build the retroXR mGBA core for Windows, Android, Linux and macOS and publish
+# it as a release, so retroXR's CoreDownloadManager can fetch it.
 #
 # This fork exists for one thing: mGBA has carried its own lockstep link
 # coordinator for years and nothing in libretro could reach it. Two cores in one
@@ -19,6 +19,9 @@
 #
 #   Windows  mgba_libretro.dll.zip          containing mgba_libretro.dll
 #   Android  mgba_libretro_android.so.zip   containing mgba_libretro_android.so
+#   Linux    mgba_libretro.so.zip           containing mgba_libretro.so
+#   macOS    mgba_libretro_arm64.dylib.zip
+#            mgba_libretro_x86_64.dylib.zip  each containing mgba_libretro.dylib
 #
 # Note the _android infix, which azahar's asset does NOT have. The two sit next
 # to each other in core_sources.gd and the wrong name fails silently.
@@ -195,9 +198,154 @@ jobs:
           path: mgba_libretro_android.so.zip
           if-no-files-found: error
 
+  # The oldest Ubuntu runner: a shared library loads only against a glibc at
+  # least as new as the one it was linked with.
+  #
+  # The optional libraries are off for the same reason as on Android, turned
+  # round: this runner HAS zlib, libpng and friends, mGBA's CMake would find
+  # them, and the core would then carry a DT_NEEDED on each -- a load failure on
+  # any desktop that lacks one. The other platforms ship without them, so this
+  # one does too, and the package step fails the run if anything but libc and
+  # libm is named.
+  linux:
+    name: Linux x86_64
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build zip
+
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          ref: ${{ github.event.inputs.ref || github.ref }}
+
+      - name: Configure
+        run: >
+          cmake -S . -B build-linux -G Ninja
+          -DBUILD_LIBRETRO=ON -DBUILD_QT=OFF -DBUILD_SDL=OFF
+          -DCMAKE_BUILD_TYPE=Release
+          -DUSE_ZLIB=OFF -DUSE_PNG=OFF -DUSE_LIBZIP=OFF -DUSE_MINIZIP=OFF
+          -DUSE_LZMA=OFF -DUSE_SQLITE3=OFF -DUSE_ELF=OFF -DUSE_FFMPEG=OFF
+          -DUSE_EPOXY=OFF -DUSE_DISCORD_RPC=OFF -DUSE_EDITLINE=OFF
+          -DUSE_FREETYPE=OFF -DUSE_LUA=OFF -DUSE_JSON_C=OFF
+
+      - name: Build
+        run: cmake --build build-linux --target mgba_libretro -j $(nproc)
+
+      - name: Package
+        run: |
+          mapfile -t hits < <(find build-linux -name 'mgba_libretro*.so' -type f)
+          if [ "${#hits[@]}" -ne 1 ]; then
+            echo "expected exactly one mgba_libretro*.so, found ${#hits[@]}:"
+            printf '  %s\n' "${hits[@]}"
+            exit 1
+          fi
+          mkdir -p stage
+          cp "${hits[0]}" stage/mgba_libretro.so
+
+          # Stripped for the same reason as the Android core, and with the same
+          # care: --strip-unneeded keeps the dynamic symbols the frontend dlsyms.
+          before=$(stat -c%s stage/mgba_libretro.so)
+          strip --strip-unneeded stage/mgba_libretro.so
+          after=$(stat -c%s stage/mgba_libretro.so)
+          echo "stripped: $before -> $after bytes"
+          for sym in retro_api_version retro_init retro_load_game retro_run; do
+            if ! nm --dynamic --defined-only stage/mgba_libretro.so \
+                 | grep -q " $sym\$"; then
+              echo "FATAL: $sym is not exported after stripping"
+              exit 1
+            fi
+          done
+
+          readelf -d stage/mgba_libretro.so | grep NEEDED
+          if readelf -d stage/mgba_libretro.so | grep NEEDED \
+               | grep -Ev '\[(libc|libm|libpthread|libdl|ld-linux-x86-64)\.so'; then
+            echo "FATAL: mgba_libretro.so needs a library a desktop may not have"
+            exit 1
+          fi
+
+          (cd stage && zip -q -X ../mgba_libretro.so.zip mgba_libretro.so)
+          file stage/mgba_libretro.so
+          ls -lh mgba_libretro.so.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: mgba_libretro.so.zip
+          if-no-files-found: error
+
+  # Both architectures on one Apple Silicon runner. CMake cross-compiles to
+  # x86_64 with nothing but CMAKE_OSX_ARCHITECTURES; the optional libraries are
+  # off because Homebrew's, where the runner has them, are arm64 only and would
+  # either break the x86_64 link or pin the core to a Homebrew prefix.
+  macos:
+    name: macOS ${{ matrix.arch }}
+    runs-on: macos-14
+    strategy:
+      matrix:
+        include:
+          - arch: arm64
+            target: '11.0'
+          - arch: x86_64
+            target: '10.13'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          ref: ${{ github.event.inputs.ref || github.ref }}
+
+      - name: Configure
+        run: >
+          cmake -S . -B build-macos
+          -DBUILD_LIBRETRO=ON -DBUILD_QT=OFF -DBUILD_SDL=OFF
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }}
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=${{ matrix.target }}
+          -DUSE_ZLIB=OFF -DUSE_PNG=OFF -DUSE_LIBZIP=OFF -DUSE_MINIZIP=OFF
+          -DUSE_LZMA=OFF -DUSE_SQLITE3=OFF -DUSE_ELF=OFF -DUSE_FFMPEG=OFF
+          -DUSE_EPOXY=OFF -DUSE_DISCORD_RPC=OFF -DUSE_EDITLINE=OFF
+          -DUSE_FREETYPE=OFF -DUSE_LUA=OFF -DUSE_JSON_C=OFF
+
+      - name: Build
+        run: cmake --build build-macos --target mgba_libretro -j $(sysctl -n hw.ncpu)
+
+      - name: Package
+        run: |
+          hits=()
+          while IFS= read -r f; do hits+=("$f"); done \
+            < <(find build-macos -name 'mgba_libretro*.dylib' -type f)
+          if [ "${#hits[@]}" -ne 1 ]; then
+            echo "expected exactly one mgba_libretro*.dylib, found ${#hits[@]}:"
+            printf '  %s\n' "${hits[@]}"
+            exit 1
+          fi
+          mkdir -p stage
+          lib=stage/mgba_libretro.dylib
+          cp "${hits[0]}" "$lib"
+          lipo -info "$lib"
+          if [ "$(lipo -archs "$lib")" != "${{ matrix.arch }}" ]; then
+            echo "$lib is not ${{ matrix.arch }}"
+            exit 1
+          fi
+          otool -L "$lib"
+          if otool -L "$lib" | tail -n +2 | grep -Ev '^[[:space:]]*/(usr/lib|System/Library)/'; then
+            echo "FATAL: $lib links a library outside the system"
+            exit 1
+          fi
+          (cd stage && zip -q -X ../mgba_libretro_${{ matrix.arch }}.dylib.zip mgba_libretro.dylib)
+          ls -lh mgba_libretro_${{ matrix.arch }}.dylib.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}
+          path: mgba_libretro_${{ matrix.arch }}.dylib.zip
+          if-no-files-found: error
+
   publish:
     name: Publish release
-    needs: [windows, android]
+    needs: [windows, android, linux, macos]
     if: github.event_name == 'push' || github.event.inputs.tag != ''
     runs-on: ubuntu-latest
     permissions:
@@ -217,13 +365,18 @@ jobs:
           cat > notes.md <<EOF
           mGBA libretro core built for retroXR, from \`$GITHUB_SHA\`.
 
-          Windows x86_64 and Android arm64-v8a. The source for these binaries is
-          this tag.
+          Windows x86_64, Android arm64-v8a, Linux x86_64 and macOS arm64 and
+          x86_64. The source for these binaries is this tag.
 
           Over the stock buildbot build this reaches mGBA's link coordinator
           through a bus the frontend hosts, for both the Game Boy Advance and the
           Game Boy -- they are separate cores with separate serial ports, and the
           Game Boy side carried nothing at all before it.
+
+          It hands the e-Reader its dot-code cards through disk control, and
+          carries the scanner and the card on it in the savestate -- upstream
+          left both out, so a rollback or a late netplay joiner restored a GBA
+          whose scanner disagreed with the one it was taken from.
           EOF
           if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release create "$TAG" \
@@ -234,4 +387,7 @@ jobs:
           gh release upload "$TAG" \
             dist/mgba_libretro.dll.zip \
             dist/mgba_libretro_android.so.zip \
+            dist/mgba_libretro.so.zip \
+            dist/mgba_libretro_arm64.dylib.zip \
+            dist/mgba_libretro_x86_64.dylib.zip \
             --repo "$GITHUB_REPOSITORY" --clobber
