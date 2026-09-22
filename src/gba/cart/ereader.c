@@ -1756,3 +1756,90 @@ bool EReaderScanSaveRaw(const struct EReaderScan* scan, const char* filename, bo
 #endif
 
 #endif
+
+#define EREADER_STATE_MAGIC 0x52445245 // "ERDR"
+#define EREADER_STATE_VERSION 1
+#define EREADER_STATE_HAS_DOTS 1
+#define EREADER_STATE_HAS_PENDING 2
+
+// The block is laid out little-endian with both dot buffers always present, so
+// its size does not depend on whether a card is on the scanner. A missing
+// buffer is written as zeroes and flagged absent: a zeroed strip and no strip
+// read differently (_eReaderReadData treats a bare head as "no card").
+void GBACartEReaderSerialize(const struct GBACartEReader* ereader, void* buffer) {
+	uint8_t* out = buffer;
+	memset(out, 0, EREADER_STATE_SIZE);
+	STORE_32LE(EREADER_STATE_MAGIC, 0x00, out);
+	out[0x04] = EREADER_STATE_VERSION;
+	out[0x05] = (ereader->dots ? EREADER_STATE_HAS_DOTS : 0) | (ereader->pendingDots ? EREADER_STATE_HAS_PENDING : 0);
+	out[0x06] = ereader->state;
+	out[0x07] = ereader->command;
+	out[0x08] = ereader->activeRegister;
+	out[0x09] = ereader->byte;
+	out[0x0A] = ereader->registerControl0;
+	out[0x0B] = ereader->registerControl1;
+	STORE_32LE(ereader->scanX, 0x0C, out);
+	STORE_32LE(ereader->scanY, 0x10, out);
+	STORE_16LE(ereader->registerUnk, 0x14, out);
+	STORE_16LE(ereader->registerReset, 0x16, out);
+	STORE_16LE(ereader->registerLed, 0x18, out);
+	size_t i;
+	for (i = 0; i < 44; ++i) {
+		STORE_16LE(ereader->data[i], 0x1C + i * 2, out);
+	}
+	memcpy(&out[0x74], ereader->serial, sizeof(ereader->serial));
+	if (ereader->dots) {
+		memcpy(&out[0x100], ereader->dots, EREADER_DOTCODE_SIZE);
+	}
+	if (ereader->pendingDots) {
+		memcpy(&out[0x100 + EREADER_DOTCODE_SIZE], ereader->pendingDots, EREADER_DOTCODE_SIZE);
+	}
+}
+
+static void _eReaderRestoreDots(uint8_t** dots, bool present, const uint8_t* source) {
+	if (!present) {
+		if (*dots) {
+			mappedMemoryFree(*dots, EREADER_DOTCODE_SIZE);
+			*dots = NULL;
+		}
+		return;
+	}
+	if (!*dots) {
+		*dots = anonymousMemoryMap(EREADER_DOTCODE_SIZE);
+	}
+	memcpy(*dots, source, EREADER_DOTCODE_SIZE);
+}
+
+bool GBACartEReaderDeserialize(struct GBACartEReader* ereader, const void* buffer, size_t size) {
+	const uint8_t* in = buffer;
+	uint32_t magic;
+	if (size < EREADER_STATE_SIZE) {
+		return false;
+	}
+	LOAD_32LE(magic, 0x00, in);
+	if (magic != EREADER_STATE_MAGIC || in[0x04] != EREADER_STATE_VERSION) {
+		return false;
+	}
+	ereader->state = in[0x06];
+	ereader->command = in[0x07];
+	ereader->activeRegister = in[0x08];
+	ereader->byte = in[0x09];
+	ereader->registerControl0 = in[0x0A];
+	ereader->registerControl1 = in[0x0B];
+	int32_t scan;
+	LOAD_32LE(scan, 0x0C, in);
+	ereader->scanX = scan;
+	LOAD_32LE(scan, 0x10, in);
+	ereader->scanY = scan;
+	LOAD_16LE(ereader->registerUnk, 0x14, in);
+	LOAD_16LE(ereader->registerReset, 0x16, in);
+	LOAD_16LE(ereader->registerLed, 0x18, in);
+	size_t i;
+	for (i = 0; i < 44; ++i) {
+		LOAD_16LE(ereader->data[i], 0x1C + i * 2, in);
+	}
+	memcpy(ereader->serial, &in[0x74], sizeof(ereader->serial));
+	_eReaderRestoreDots(&ereader->dots, in[0x05] & EREADER_STATE_HAS_DOTS, &in[0x100]);
+	_eReaderRestoreDots(&ereader->pendingDots, in[0x05] & EREADER_STATE_HAS_PENDING, &in[0x100 + EREADER_DOTCODE_SIZE]);
+	return true;
+}

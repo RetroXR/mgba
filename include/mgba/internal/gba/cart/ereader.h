@@ -65,7 +65,6 @@ struct GBACartEReader {
 	EReaderControl1 registerControl1;
 	uint16_t registerLed;
 
-	// TODO: Serialize these
 	enum EReaderStateMachine state;
 	enum EReaderCommand command;
 	uint8_t activeRegister;
@@ -118,6 +117,14 @@ void GBACartEReaderWriteFlash(struct GBACartEReader* ereader, uint32_t address, 
 uint16_t GBACartEReaderRead(struct GBACartEReader* ereader, uint32_t address);
 uint8_t GBACartEReaderReadFlash(struct GBACartEReader* ereader, uint32_t address);
 void GBACartEReaderScan(struct GBACartEReader* ereader, const void* data, size_t size);
+
+// The whole scanner, card included, as one fixed-size block -- fixed so that a
+// frontend's serialize size cannot change the moment a card is swiped. Netplay
+// rolls back and late-joins through savestates, and a scanner left out of them
+// reads a card on one machine that the other never saw.
+#define EREADER_STATE_SIZE (0x100 + 2 * EREADER_DOTCODE_SIZE)
+void GBACartEReaderSerialize(const struct GBACartEReader* ereader, void* buffer);
+bool GBACartEReaderDeserialize(struct GBACartEReader* ereader, const void* buffer, size_t size);
 
 struct EReaderScan* EReaderScanCreate(unsigned width, unsigned height);
 void EReaderScanDetectParams(struct EReaderScan*);

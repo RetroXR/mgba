@@ -919,6 +919,10 @@ static bool _GBACoreLoadExtraState(struct mCore* core, const struct mStateExtdat
 			ok = false;
 		}
 	}
+	if (gba->memory.hw.devices & HW_EREADER &&
+	    mStateExtdataGet(extdata, EXTDATA_SUBSYSTEM_START + GBA_SUBSYSTEM_EREADER, &item)) {
+		ok = GBACartEReaderDeserialize(&gba->memory.ereader, item.data, item.size) && ok;
+	}
 	return ok;
 }
 
@@ -960,6 +964,18 @@ static bool _GBACoreSaveExtraState(struct mCore* core, struct mStateExtdata* ext
 			buffer = NULL;
 		}
 		size = 0;
+	}
+
+	// The scanner and the card on it. Without this a rollback replaying across a
+	// swipe, or a late join mid-scan, restores a GBA whose e-Reader disagrees
+	// with the one it was taken from.
+	if (gba->memory.hw.devices & HW_EREADER) {
+		struct mStateExtdataItem item;
+		item.size = EREADER_STATE_SIZE;
+		item.data = malloc(item.size);
+		item.clean = free;
+		GBACartEReaderSerialize(&gba->memory.ereader, item.data);
+		mStateExtdataPut(extdata, EXTDATA_SUBSYSTEM_START + GBA_SUBSYSTEM_EREADER, &item);
 	}
 
 	return true;
