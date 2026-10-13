@@ -76,6 +76,21 @@ struct GBSIODriver {
 	uint8_t (*writeSC)(struct GBSIODriver* driver, uint8_t value);
 };
 
+/* The far end of the Game Boy Color's infrared port. RP is an LED and a
+ * photodiode and nothing else -- no clock, no shift register, no interrupt --
+ * so a driver is told when the register is written and asked whether, at this
+ * moment, light is falling on the receiver. With none installed the receiver
+ * sees the dark. */
+struct GB;
+struct GBInfraredDriver {
+	struct GB* p;
+
+	bool (*init)(struct GBInfraredDriver* driver);
+	void (*deinit)(struct GBInfraredDriver* driver);
+	void (*writeRP)(struct GBInfraredDriver* driver, uint8_t value);
+	bool (*readLight)(struct GBInfraredDriver* driver);
+};
+
 struct GBCartridgeOverride {
 	int headerCrc32;
 	enum GBModel model;

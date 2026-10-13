@@ -100,6 +100,7 @@ static const uint8_t _registerMask[] = {
 	[GB_REG_STAT] = 0x80,
 	[GB_REG_KEY1] = 0x7E,
 	[GB_REG_VBK]  = 0xFE,
+	[GB_REG_RP]   = 0x3E,
 	[GB_REG_OCPS] = 0x40,
 	[GB_REG_BCPS] = 0x40,
 	[GB_REG_OPRI] = 0xFE,
@@ -464,6 +465,15 @@ void GBIOWrite(struct GB* gb, unsigned address, uint8_t value) {
 			case GB_REG_VBK:
 				GBVideoSwitchBank(&gb->video, value);
 				break;
+			case GB_REG_RP:
+				// Bit 0 is the LED and bits 6-7 switch the receiver on. Bit 1 is
+				// the receiver and is not stored at all; the rest read back high.
+				// A Game Boy Advance keeps the register and leaves the port out
+				value &= 0xC1;
+				if (gb->irDriver && gb->model < GB_MODEL_AGB) {
+					gb->irDriver->writeRP(gb->irDriver, value);
+				}
+				break;
 			case GB_REG_HDMA1:
 			case GB_REG_HDMA2:
 			case GB_REG_HDMA3:
@@ -635,6 +645,17 @@ uint8_t GBIORead(struct GB* gb, unsigned address) {
 	case GB_REG_WY:
 	case GB_REG_WX:
 		// Handled transparently by the registers
+		break;
+	case GB_REG_RP:
+		if (gb->model < GB_MODEL_CGB) {
+			mLOG(GB_IO, GAME_ERROR, "Reading from CGB register FF%02X in DMG mode", address);
+			return 0xFF;
+		}
+		// The receiver reads 0 while it is lit, and only while it is switched on
+		if (gb->irDriver && gb->model < GB_MODEL_AGB && (gb->memory.io[GB_REG_RP] & 0xC0) == 0xC0 &&
+		    gb->irDriver->readLight(gb->irDriver)) {
+			return (gb->memory.io[GB_REG_RP] | _registerMask[GB_REG_RP]) & ~2;
+		}
 		break;
 	case GB_REG_KEY1:
 	case GB_REG_VBK:
