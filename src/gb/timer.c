@@ -133,7 +133,10 @@ void GBTimerSerialize(const struct GBTimer* timer, struct GBSerializedState* sta
 void GBTimerDeserialize(struct GBTimer* timer, const struct GBSerializedState* state) {
 	LOAD_32LE(timer->nextDiv, 0, &state->timer.nextDiv);
 	LOAD_32LE(timer->internalDiv, 0, &state->timer.internalDiv);
-	LOAD_32LE(timer->timaPeriod, 0, &state->timer.timaPeriod);
+	// One byte, and the flags are the byte after it. Read as a word, a state saved
+	// while a timer interrupt was pending loads its period with bit 8 set, and
+	// TIMA then counts on a mask that is no longer a power of two
+	timer->timaPeriod = state->timer.timaPeriod;
 
 	uint32_t when;
 	LOAD_32LE(when, 0, &state->timer.nextEvent);
