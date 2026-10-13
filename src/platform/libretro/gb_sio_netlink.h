@@ -66,6 +66,12 @@ struct GBSIONetlink {
 	int selfId;
 	unsigned peers;
 
+	/* Whether another machine's serial hardware is on this wire, which is what
+	 * makes this driver wait. Not `peers`: that goes to zero for a wire with
+	 * three machines on it, which is refused and still has to be kept time
+	 * with. The infrared port reads this to know it must not wait as well. */
+	bool cabled;
+
 	/* A monotonic 64-bit clock, accumulated from mGBA's 32-bit one.
 	 *
 	 * No scaling: the Game Boy's timing already runs at 8388608 ticks a second
@@ -78,6 +84,11 @@ struct GBSIONetlink {
 	int32_t lastRaw;
 	bool haveRaw;
 	uint64_t nowBase;
+
+	/* Where on mGBA's clock this driver's beat falls: it wakes a grain after the
+	 * reset and every grain after that. Kept so GBSIONetlinkRearm can put it
+	 * back on the SAME beat. */
+	uint32_t phase;
 
 	uint64_t horizon;
 	uint64_t grain;
@@ -129,6 +140,21 @@ struct GBSIONetlink {
 
 void GBSIONetlinkCreate(struct GBSIONetlink*, const struct retro_link_interface* link, unsigned port);
 void GBSIONetlinkDestroy(struct GBSIONetlink*);
+
+/* Put the driver back on the schedule after a state has been loaded.
+ *
+ * A load clears the schedule and restores only the events the state knows
+ * about, and this driver's pump is not one of them. Left off, the port stays
+ * attached and never rendezvouses again -- which stops the machine at the
+ * OTHER end of the cable, waiting on a tick this one will never publish. The
+ * load also replaces the clock the driver measures from, so that is read
+ * afresh rather than taken for time having passed.
+ *
+ * It goes back on the beat it was on, counted off the clock the state carries,
+ * and not a step from the load: a machine that loaded and one that never did
+ * are what rollback netplay runs side by side, and they have to wake on the
+ * same ticks. */
+void GBSIONetlinkRearm(struct GBSIONetlink*);
 
 CXX_GUARD_END
 

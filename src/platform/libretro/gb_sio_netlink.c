@@ -243,6 +243,7 @@ static void _refreshPeers(struct GBSIONetlink* nl) {
 	}
 
 	id = nl->link->peers(nl->handle, &count);
+	nl->cabled = id >= 0 && count >= 2;
 	if (id < 0) {
 		nl->selfId = 0;
 		nl->peers = 0;
@@ -327,6 +328,24 @@ void GBSIONetlinkDestroy(struct GBSIONetlink* nl) {
 		nl->link->detach(nl->handle);
 		nl->attached = false;
 	}
+	nl->cabled = false;
+}
+
+void GBSIONetlinkRearm(struct GBSIONetlink* nl) {
+	uint32_t grain;
+	uint32_t raw;
+
+	if (!nl->attached || !nl->d.p) {
+		return;
+	}
+	nl->haveRaw = false;
+
+	/* Both grains are powers of two, so the beat is a mask away, and the clock
+	 * wrapping round does not move it. */
+	grain = (uint32_t) nl->grain;
+	raw = (uint32_t) mTimingCurrentTime(&_gb(nl)->timing);
+	mTimingDeschedule(&_gb(nl)->timing, &nl->event);
+	mTimingSchedule(&_gb(nl)->timing, &nl->event, (int32_t) (grain - ((raw - nl->phase) & (grain - 1))));
 }
 
 static bool GBSIONetlinkInit(struct GBSIODriver* driver) {
@@ -379,6 +398,7 @@ static bool GBSIONetlinkInit(struct GBSIODriver* driver) {
 	 * back through here, and by then mTimingClear has taken every event booked
 	 * before it. Miss this and the link looks perfect from outside: the port is
 	 * attached, the bus reports both machines, and not one byte ever crosses. */
+	nl->phase = (uint32_t) mTimingCurrentTime(&_gb(nl)->timing) + (uint32_t) nl->grain;
 	mTimingDeschedule(&_gb(nl)->timing, &nl->event);
 	mTimingSchedule(&_gb(nl)->timing, &nl->event, (int32_t) nl->grain);
 	return true;

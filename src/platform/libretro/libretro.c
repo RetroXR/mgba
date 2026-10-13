@@ -28,6 +28,7 @@
 
 #include "sio_netlink.h"
 #include "gb_sio_netlink.h"
+#include "gb_ir_netlink.h"
 #include "ereader_disk.h"
 #include "libretro_core_options.h"
 
@@ -85,6 +86,13 @@ static bool netlinkAttached = false;
  * all until this existed. */
 static struct GBSIONetlink gbNetlink;
 static bool gbNetlinkAttached = false;
+
+/* The Game Boy Color's infrared port, on the same bus and a port of its own.
+ * Port 1, where the cable is port 0: what a lead joins and what two units
+ * facing each other join are different things, and the frontend seats them
+ * separately. Not behind the cable's option, which is about the cable. */
+static struct GBIRNetlink gbIrNetlink;
+static bool gbIrNetlinkAttached = false;
 #endif
 
 /* Whether the player asked for a cable.
@@ -1008,6 +1016,17 @@ bool retro_load_game(const struct retro_game_info* game) {
 			GBSIOSetDriver(&((struct GB*) core->board)->sio, &gbNetlink.d);
 			gbNetlinkAttached = true;
 		}
+
+		/* Infrared. Installed for every Game Boy and joined to the bus only by
+		 * one that turns out to have the port, which is not known until the
+		 * machine is reset and its model chosen. It is handed the cable's driver
+		 * so it can tell when that is carrying somebody: a machine waits on one
+		 * bus, never two. */
+		if (linkInterface) {
+			GBIRNetlinkCreate(&gbIrNetlink, linkInterface, 1, gbNetlinkAttached ? &gbNetlink : NULL);
+			GBSetInfraredDriver((struct GB*) core->board, &gbIrNetlink.d);
+			gbIrNetlinkAttached = true;
+		}
 #endif
 	}
 
@@ -1114,6 +1133,10 @@ bool retro_load_game(const struct retro_game_info* game) {
 			GBSIONetlinkDestroy(&gbNetlink);
 			gbNetlinkAttached = false;
 		}
+		if (gbIrNetlinkAttached) {
+			GBIRNetlinkDestroy(&gbIrNetlink);
+			gbIrNetlinkAttached = false;
+		}
 #endif
 		mCoreConfigDeinit(&core->config);
 		core->deinit(core);
@@ -1164,6 +1187,10 @@ void retro_unload_game(void) {
 		GBSIONetlinkDestroy(&gbNetlink);
 		gbNetlinkAttached = false;
 	}
+	if (gbIrNetlinkAttached) {
+		GBIRNetlinkDestroy(&gbIrNetlink);
+		gbIrNetlinkAttached = false;
+	}
 #endif
 	EReaderDiskReset();
 	mCoreConfigDeinit(&core->config);
@@ -1210,6 +1237,20 @@ bool retro_unserialize(const void* data, size_t size) {
 	struct VFile* vfm = VFileFromConstMemory(data, size);
 	bool success = mCoreLoadStateNamed(core, vfm, SAVESTATE_RTC);
 	vfm->close(vfm);
+#ifdef M_CORE_GB
+	/* A Game Boy's loaded state clears the schedule and puts back only what
+	 * the state holds, which is neither link driver's pump. Without this the
+	 * port stays on the bus and never rendezvouses again, and it is the machine
+	 * at the other end that stops. */
+	if (success && core->platform(core) == mPLATFORM_GB) {
+		if (gbNetlinkAttached) {
+			GBSIONetlinkRearm(&gbNetlink);
+		}
+		if (gbIrNetlinkAttached) {
+			GBIRNetlinkRearm(&gbIrNetlink);
+		}
+	}
+#endif
 	return success;
 }
 
