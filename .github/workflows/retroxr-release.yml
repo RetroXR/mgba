@@ -8,6 +8,12 @@
 # the frontend hosts. That is what makes two Game Boys in one room play together,
 # single-cartridge play work, and a GameCube lead reach a handheld at all.
 #
+# The Game Boy Color's infrared port rides the same bus, on link port 1 as
+# `gbc-ir-1` (src/platform/libretro/gb_ir_netlink.c): upstream called RP an
+# unknown register. With it came two faults a loaded state used to leave behind
+# in a Game Boy -- a timer period read back over its flags byte, and both link
+# drivers taken off the schedule for good.
+#
 # mGBA is MPL-2.0, so unlike Dolphin there is no source obligation attached to
 # the binary. The source sits on the tag beside it anyway, for the practical
 # reason that it is the only way anyone can tell what they are running.
@@ -381,6 +387,15 @@ jobs:
           carries the scanner and the card on it in the savestate -- upstream
           left both out, so a rollback or a late netplay joiner restored a GBA
           whose scanner disagreed with the one it was taken from.
+
+          It carries the Game Boy Color's infrared port, on the same bus as
+          \`gbc-ir-1\`: Mystery Gift between two units in view of each other,
+          whether both are run by this core or one of them by gambatte. And it
+          mends two things a loaded state did to a Game Boy: the timer's period
+          was read back over its flags byte, which wrecked the timer whenever
+          the state had been saved with a timer interrupt pending, and both link
+          drivers were left off the schedule, which stopped the machine at the
+          other end of the wire.
           EOF
           if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release create "$TAG" \
