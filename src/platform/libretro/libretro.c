@@ -27,6 +27,7 @@
 #include <mgba-util/vfs.h>
 
 #include "sio_netlink.h"
+#include "gb_sio_netlink.h"
 #include "libretro_core_options.h"
 
 #define GB_SAMPLES 512
@@ -74,6 +75,13 @@ static struct mCore* core;
 static const struct retro_link_interface* linkInterface = NULL;
 static struct GBASIONetlink netlink;
 static bool netlinkAttached = false;
+#ifdef M_CORE_GB
+/* The Game Boy's own, on its own driver interface. mGBA's Game Boy is a separate
+ * core with a separate serial port, so a Game Boy Advance cable's driver reaches
+ * none of it. */
+static struct GBSIONetlink gbNetlink;
+static bool gbNetlinkAttached = false;
+#endif
 
 /* Whether the player asked for a cable.
  *
@@ -983,6 +991,17 @@ bool retro_load_game(const struct retro_game_info* game) {
 		audioSampleBuffer = malloc(audioSampleBufferSize * sizeof(int16_t));
 		audioSamplesPerFrameAvg = GB_SAMPLES;
 		core->setAudioBufferSize(core, GB_SAMPLES);
+
+#ifdef M_CORE_GB
+		/* Link cable. Attaching is what tells the bus this machine's serial
+		 * hardware is live; the frontend decides separately what it is cabled
+		 * to, so this is safe whether or not anything ever connects. */
+		if (linkInterface && _linkWanted()) {
+			GBSIONetlinkCreate(&gbNetlink, linkInterface, 0);
+			GBSIOSetDriver(&((struct GB*) core->board)->sio, &gbNetlink.d);
+			gbNetlinkAttached = true;
+		}
+#endif
 	}
 
 	core->setAVStream(core, &stream);
@@ -1083,6 +1102,12 @@ bool retro_load_game(const struct retro_game_info* game) {
 			GBASIONetlinkDestroy(&netlink);
 			netlinkAttached = false;
 		}
+#ifdef M_CORE_GB
+		if (gbNetlinkAttached) {
+			GBSIONetlinkDestroy(&gbNetlink);
+			gbNetlinkAttached = false;
+		}
+#endif
 		mCoreConfigDeinit(&core->config);
 		core->deinit(core);
 		core = NULL;
@@ -1116,6 +1141,12 @@ void retro_unload_game(void) {
 		GBASIONetlinkDestroy(&netlink);
 		netlinkAttached = false;
 	}
+#ifdef M_CORE_GB
+	if (gbNetlinkAttached) {
+		GBSIONetlinkDestroy(&gbNetlink);
+		gbNetlinkAttached = false;
+	}
+#endif
 	mCoreConfigDeinit(&core->config);
 	core->deinit(core);
 	mappedMemoryFree(data, dataSize);
@@ -1160,6 +1191,15 @@ bool retro_unserialize(const void* data, size_t size) {
 	struct VFile* vfm = VFileFromConstMemory(data, size);
 	bool success = mCoreLoadStateNamed(core, vfm, SAVESTATE_RTC);
 	vfm->close(vfm);
+#ifdef M_CORE_GB
+	/* A Game Boy's loaded state clears the schedule and puts back only what
+	 * the state holds, which is not the link driver's pump. Without this the
+	 * port stays on the bus and never rendezvouses again, and it is the machine
+	 * at the other end that stops. */
+	if (success && core->platform(core) == mPLATFORM_GB && gbNetlinkAttached) {
+		GBSIONetlinkRearm(&gbNetlink);
+	}
+#endif
 	return success;
 }
 
