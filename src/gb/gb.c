@@ -99,6 +99,8 @@ static void GBInit(void* cpu, struct mCPUComponent* component) {
 	gb->sio.p = gb;
 	GBSIOInit(&gb->sio);
 
+	gb->irDriver = NULL;
+
 	gb->timer.p = gb;
 
 	gb->model = GB_MODEL_AUTODETECT;
@@ -558,6 +560,24 @@ void GBDestroy(struct GB* gb) {
 	mCoreCallbacksListDeinit(&gb->coreCallbacks);
 }
 
+void GBSetInfraredDriver(struct GB* gb, struct GBInfraredDriver* driver) {
+	if (gb->irDriver && gb->irDriver->deinit) {
+		gb->irDriver->deinit(gb->irDriver);
+	}
+	if (driver) {
+		driver->p = gb;
+		if (driver->init && !driver->init(driver)) {
+			if (driver->deinit) {
+				driver->deinit(driver);
+			}
+			mLOG(GB, ERROR, "Could not initialize infrared driver");
+			gb->irDriver = NULL;
+			return;
+		}
+	}
+	gb->irDriver = driver;
+}
+
 void GBInterruptHandlerInit(struct SM83InterruptHandler* irqh) {
 	irqh->reset = GBReset;
 	irqh->processEvents = GBProcessEvents;
@@ -703,6 +723,9 @@ void GBReset(struct SM83Core* cpu) {
 	}
 
 	GBSIOReset(&gb->sio);
+	// Back through init, as the serial driver goes: mTimingClear above took
+	// whatever the driver had on the schedule, and the model is only known now
+	GBSetInfraredDriver(gb, gb->irDriver);
 
 	cpu->memory.setActiveRegion(cpu, cpu->pc);
 

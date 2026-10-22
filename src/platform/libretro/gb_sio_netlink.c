@@ -243,6 +243,7 @@ static void _refreshPeers(struct GBSIONetlink* nl) {
 	}
 
 	id = nl->link->peers(nl->handle, &count);
+	nl->cabled = id >= 0 && count >= 2;
 	if (id < 0) {
 		nl->selfId = 0;
 		nl->peers = 0;
@@ -327,6 +328,7 @@ void GBSIONetlinkDestroy(struct GBSIONetlink* nl) {
 		nl->link->detach(nl->handle);
 		nl->attached = false;
 	}
+	nl->cabled = false;
 }
 
 void GBSIONetlinkRearm(struct GBSIONetlink* nl) {

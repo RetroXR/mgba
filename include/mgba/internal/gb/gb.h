@@ -134,6 +134,8 @@ struct GB {
 	unsigned doubleSpeed;
 
 	bool allowOpposingDirections;
+
+	struct GBInfraredDriver* irDriver;
 };
 
 struct GBCartridge {
@@ -171,6 +173,8 @@ void GBDetectModel(struct GB* gb);
 
 void GBUpdateIRQs(struct GB* gb);
 void GBHalt(struct SM83Core* cpu);
+
+void GBSetInfraredDriver(struct GB* gb, struct GBInfraredDriver* driver);
 
 struct VFile;
 bool GBLoadROM(struct GB* gb, struct VFile* vf);

@@ -66,6 +66,12 @@ struct GBSIONetlink {
 	int selfId;
 	unsigned peers;
 
+	/* Whether another machine's serial hardware is on this wire, which is what
+	 * makes this driver wait. Not `peers`: that goes to zero for a wire with
+	 * three machines on it, which is refused and still has to be kept time
+	 * with. The infrared port reads this to know it must not wait as well. */
+	bool cabled;
+
 	/* A monotonic 64-bit clock, accumulated from mGBA's 32-bit one.
 	 *
 	 * No scaling: the Game Boy's timing already runs at 8388608 ticks a second
