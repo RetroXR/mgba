@@ -66,6 +66,11 @@ static int32_t _readTiltY(struct mRotationSource* source);
 static int32_t _readGyroZ(struct mRotationSource* source);
 
 static struct mCore* core;
+
+/* The frontend's link bus. Fetched once in retro_init and valid for the life of
+ * the core, so linkInterface being non-NULL only means the frontend supports a
+ * link, never that anything is cabled to us. */
+static const struct retro_link_interface* linkInterface = NULL;
 static mColor* outputBuffer = NULL;
 static int16_t *audioSampleBuffer = NULL;
 static size_t audioSampleBufferSize;
@@ -428,6 +433,8 @@ void retro_get_system_av_info(struct retro_system_av_info* info) {
 }
 
 void retro_init(void) {
+	struct retro_link_interface link;
+
 	enum retro_pixel_format fmt;
 #ifdef COLOR_16_BIT
 #ifdef COLOR_5_6_5
@@ -441,6 +448,17 @@ void retro_init(void) {
 	fmt = RETRO_PIXEL_FORMAT_XRGB8888;
 #endif
 	environCallback(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &fmt);
+
+	/* Probe the experimental number first and the plain one after, so a core
+	 * built today keeps working against a frontend that has since adopted the
+	 * unflagged command. */
+	memset(&link, 0, sizeof(link));
+	if (environCallback(RETRO_ENVIRONMENT_GET_LINK_INTERFACE, &link) ||
+	    environCallback(RETRO_ENVIRONMENT_GET_LINK_INTERFACE_FINAL, &link)) {
+		static struct retro_link_interface stored;
+		stored = link;
+		linkInterface = &stored;
+	}
 
 	struct retro_input_descriptor inputDescriptors[] = {
 		{ 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A, "A" },
