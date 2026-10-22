@@ -26,6 +26,7 @@
 #include <mgba-util/memory.h>
 #include <mgba-util/vfs.h>
 
+#include "sio_netlink.h"
 #include "libretro_core_options.h"
 
 #define GB_SAMPLES 512
@@ -71,6 +72,20 @@ static struct mCore* core;
  * the core, so linkInterface being non-NULL only means the frontend supports a
  * link, never that anything is cabled to us. */
 static const struct retro_link_interface* linkInterface = NULL;
+static struct GBASIONetlink netlink;
+static bool netlinkAttached = false;
+
+/* Whether the player asked for a cable.
+ *
+ * "ON", not "enabled". A core option value pairs a VALUE with a LABEL, and
+ * GET_VARIABLE hands back the value; "enabled" is only what the frontend prints
+ * beside it. Every other switch in this core compares against "ON" for that
+ * reason. */
+static bool _linkWanted(void) {
+	struct retro_variable linkVar = { "mgba_link_cable", 0 };
+	return environCallback(RETRO_ENVIRONMENT_GET_VARIABLE, &linkVar) && linkVar.value &&
+	       strcmp(linkVar.value, "ON") == 0;
+}
 static mColor* outputBuffer = NULL;
 static int16_t *audioSampleBuffer = NULL;
 static size_t audioSampleBufferSize;
@@ -383,6 +398,15 @@ void retro_set_environment(retro_environment_t env) {
 
 	bool categoriesSupported;
 	libretro_set_core_options(environCallback, &categoriesSupported);
+
+#ifdef M_CORE_GBA
+	/* A Game Boy Advance with no cartridge is a real machine in a real state: the
+	 * BIOS draws its start-up animation and then waits on the link port for a
+	 * program to be sent to it, which is how single-cartridge multiplayer works.
+	 * Saying so here is what lets a frontend offer it. */
+	bool noGame = true;
+	environCallback(RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME, &noGame);
+#endif
 }
 
 void retro_set_video_refresh(retro_video_refresh_t video) {
@@ -861,8 +885,24 @@ void retro_reset(void) {
 }
 
 bool retro_load_game(const struct retro_game_info* game) {
-	struct VFile* rom;
-	if (game->data) {
+	struct VFile* rom = NULL;
+	if (!game || (!game->data && !game->path)) {
+#ifdef M_CORE_GBA
+		/* Nothing in the machine. There is no ROM to sniff a platform out of, so
+		 * the platform is chosen rather than detected, and Game Boy Advance is
+		 * the only one of the two this can mean: a Game Boy with no cartridge
+		 * shows a checkerboard and halts, while a GBA boots its BIOS and listens
+		 * on the link port for a program to run. */
+		core = GBACoreCreate();
+		if (!core) {
+			return false;
+		}
+		data = NULL;
+		dataSize = 0;
+#else
+		return false;
+#endif
+	} else if (game->data) {
 		data = anonymousMemoryMap(game->size);
 		dataSize = game->size;
 		memcpy(data, game->data, game->size);
@@ -873,15 +913,16 @@ bool retro_load_game(const struct retro_game_info* game) {
 		rom = VFileOpen(game->path, O_RDONLY);
 #endif
 	}
-	if (!rom) {
-		return false;
-	}
-
-	core = mCoreFindVF(rom);
 	if (!core) {
-		rom->close(rom);
-		mappedMemoryFree(data, game->size);
-		return false;
+		if (!rom) {
+			return false;
+		}
+		core = mCoreFindVF(rom);
+		if (!core) {
+			rom->close(rom);
+			mappedMemoryFree(data, game->size);
+			return false;
+		}
 	}
 	mCoreInitConfig(core, NULL);
 	core->init(core);
@@ -918,6 +959,15 @@ bool retro_load_game(const struct retro_game_info* game) {
 			internalAudioBufferSize = 0x4000;
 		}
 		core->setAudioBufferSize(core, internalAudioBufferSize);
+
+		/* Link cable. Attaching is what tells the bus this machine's serial
+		 * hardware is live; the frontend decides separately what it is cabled
+		 * to, so this is safe whether or not anything ever connects. */
+		if (linkInterface && _linkWanted()) {
+			GBASIONetlinkCreate(&netlink, linkInterface, 0);
+			GBASIOSetDriver(&((struct GBA*) core->board)->sio, &netlink.d);
+			netlinkAttached = true;
+		}
 	} else
 	#endif
 	{
@@ -943,7 +993,9 @@ bool retro_load_game(const struct retro_game_info* game) {
 	memset(savedata, 0xFF, GBA_SIZE_FLASH1M);
 
 	_reloadSettings();
-	core->loadROM(core, rom);
+	if (rom) {
+		core->loadROM(core, rom);
+	}
 	deferredSetup = true;
 
 	const char* sysDir = 0;
@@ -996,15 +1048,56 @@ bool retro_load_game(const struct retro_game_info* game) {
 	}
 #endif
 
+	bool haveBios = false;
 #ifdef ENABLE_VFS
-	if (core->opts.useBios && sysDir && biosName) {
+	if (sysDir && biosName) {
 		snprintf(biosPath, sizeof(biosPath), "%s%s%s", sysDir, PATH_SEP, biosName);
 		struct VFile* bios = VFileOpen(biosPath, O_RDONLY);
 		if (bios) {
-			core->loadBIOS(core, bios, 0);
+			/* With no cartridge the BIOS is the only code there is, so it is
+			 * loaded whether or not the player asked for it. Refusing here on the
+			 * strength of a preference would leave a machine with nothing to
+			 * execute. */
+			if (core->opts.useBios || !rom) {
+				core->loadBIOS(core, bios, 0);
+				haveBios = true;
+			} else {
+				bios->close(bios);
+			}
 		}
 	}
 #endif
+
+	if (!rom && !haveBios) {
+		/* An empty machine with no BIOS has nothing to run at all. Better to
+		 * refuse than to start something that can only sit at a black screen.
+		 *
+		 * Everything a load sets up has to come down by hand here. This is the
+		 * only failure that can be reached after the allocating has begun, and
+		 * clearing the core below is also what stops retro_unload_game from ever
+		 * running: it gives up at once on a null core. Leaving the endpoint would
+		 * be the worst of it -- it would hold its slot on the bus, in front of a
+		 * core that no longer exists, for as long as the frontend stays open. */
+		mLOG(GBA_SIO, WARN, "No cartridge and no BIOS: put %s in the system directory", biosName);
+		if (netlinkAttached) {
+			GBASIONetlinkDestroy(&netlink);
+			netlinkAttached = false;
+		}
+		mCoreConfigDeinit(&core->config);
+		core->deinit(core);
+		core = NULL;
+		mappedMemoryFree(savedata, GBA_SIZE_FLASH1M);
+		savedata = 0;
+		/* Not retro_deinit's to free after all: a frontend is free to offer
+		 * another game once this one has been refused, and the next load would
+		 * overwrite both pointers before it ever got the chance. */
+		free(outputBuffer);
+		outputBuffer = NULL;
+		free(audioSampleBuffer);
+		audioSampleBuffer = NULL;
+		audioSampleBufferSize = 0;
+		return false;
+	}
 
 	core->reset(core);
 	_setupMaps(core);
@@ -1015,6 +1108,13 @@ bool retro_load_game(const struct retro_game_info* game) {
 void retro_unload_game(void) {
 	if (!core) {
 		return;
+	}
+	/* Detach before the core goes away. GBASIOSetDriver's deinit path runs from
+	 * core->deinit below, but leaving an endpoint on the bus would hold up
+	 * whatever is cabled to it. Destroy is safe to call twice. */
+	if (netlinkAttached) {
+		GBASIONetlinkDestroy(&netlink);
+		netlinkAttached = false;
 	}
 	mCoreConfigDeinit(&core->config);
 	core->deinit(core);

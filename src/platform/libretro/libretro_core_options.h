@@ -267,6 +267,20 @@ struct retro_core_option_v2_definition option_defs_us[] = {
       "OFF"
    },
    {
+      "mgba_link_cable",
+      "Link Cable (Restart)",
+      NULL,
+      "Emulate a link cable between this machine and another Game Boy Advance running in the same frontend, for multiplayer games such as Mario Kart: Super Circuit, and for sending a game to a system with no cartridge in it. The frontend decides which machines are cabled together and must support the link interface; where it does not, this does nothing.",
+      NULL,
+      "system",
+      {
+         { "ON",  "enabled" },
+         { "OFF", "disabled" },
+         { NULL, NULL },
+      },
+      "ON"
+   },
+   {
       "mgba_idle_optimization",
       "Idle Loop Removal",
       NULL,

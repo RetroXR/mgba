@@ -1,0 +1,139 @@
+/* Copyright (c) 2013-2026 Jeffrey Pfau
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+#ifndef SIO_NETLINK_H
+#define SIO_NETLINK_H
+
+#include <mgba-util/common.h>
+
+CXX_GUARD_START
+
+#include <mgba/core/timing.h>
+#include <mgba/internal/gba/sio.h>
+
+#include "libretro.h"
+
+/* A GBA link cable carried by the frontend's link bus.
+ *
+ * This is GBASIOLockstepCoordinator's job done one level up. The coordinator
+ * is a shared structure behind a mutex, which works when several GBAs run
+ * inside one program, but a libretro frontend running two cores at once
+ * generally loads each from its own copy of the shared library. Two instances
+ * then share no globals whatsoever and cannot find each other, so the bus has
+ * to live in the frontend and the cores have to reach it through
+ * RETRO_ENVIRONMENT_GET_LINK_INTERFACE.
+ *
+ * Multiplayer AND normal mode are carried; UART and JOY are not.
+ *
+ * Normal mode is what single-cartridge play runs over: the host sends a client
+ * with no cartridge at all a program to run out of its RAM, in 32-bit words.
+ * At the fast internal clock those words take 256 cycles against multiplayer's
+ * 5755; the slow clock takes 2048. The shortest case sets the safe bound, so
+ * normal mode cannot share multiplayer's commit horizon and the horizon follows
+ * the mode rather than being one constant. */
+
+struct GBASIONetlink {
+	struct GBASIODriver d;
+	struct mTimingEvent event;
+
+	const struct retro_link_interface* link;
+	unsigned port;
+
+	/* What the frontend gave back at attach, and what every later call takes.
+	 *
+	 * Not a port number: the frontend has no way to tell one core from another
+	 * from a bare port, and working it out from the calling thread only holds
+	 * for a core that does everything on one. This holds for any of them. */
+	retro_link_port_t *handle;
+	bool attached;
+
+	/* Index on the bus. Player 0 owns the clock and is the only one that may
+	 * originate a transfer, matching real hardware. */
+	int selfId;
+	unsigned peers;
+
+	/* How far ahead of itself this core promises not to originate anything.
+	 * Must stay below the shortest transfer it will carry, or a peer could
+	 * still be short of the point where it publishes its half of a transfer
+	 * when the transfer is due to complete. */
+	/* A monotonic 64-bit clock, accumulated from mGBA's 32-bit one.
+	 *
+	 * NOT mTimingGlobalTime, which looks like exactly the right thing and is a
+	 * trap: mTimingTick only advances globalCycles under ENABLE_DEBUGGERS, so in
+	 * a release core it reads zero for ever. mTimingCurrentTime is what mGBA's
+	 * own SIO drivers use, and it is an int32 that wraps, so the wraps are
+	 * accumulated here into something the bus can compare across machines. */
+	int32_t lastRaw;
+	bool haveRaw;
+	uint64_t nowBase;
+
+	/* This implementation intentionally uses one value for both the lookahead
+	 * promise and event cadence. Keeping two always-equal fields only allowed
+	 * transitions to update one without the other. */
+	uint64_t syncGrain;
+	uint64_t publishedSafeUntil;
+	uint64_t activeUntil;
+
+	enum GBASIOMode mode;
+
+	/* What each machine on the cable is doing, this one included.
+	 *
+	 * SIOCNT bit 3 is the "all GBAs ready" flag, and GBATEK is explicit that it
+	 * is hardware-driven and read-only: a game selects multiplayer mode and then
+	 * READS that bit to decide whether anyone is out there. Nothing writes it, so
+	 * the driver has to keep it true, which means knowing what every peer is up
+	 * to. Ready means all of them are in the same mode as this one. */
+	enum GBASIOMode peerModes[MAX_GBAS];
+	uint32_t peerModesSeen;
+
+	/* General-purpose line state, which is how a game finds out whether anything
+	 * is on the other end at all. A GBA boots into GPIO mode, drives SO and reads
+	 * SI, and decides from that; without the peer's lines it only ever reads back
+	 * its own and concludes it is alone. Low byte of RCNT: bits 0-3 the SC, SD,
+	 * SI and SO data, bits 4-7 their directions, 1 meaning driven. */
+	uint8_t lines;
+	bool linesPublished;
+	uint8_t peerLines[MAX_GBAS];
+	uint32_t peerLinesSeen;
+
+	/* A topology announcement is repeated until every current peer acknowledges
+	 * both halves. Cores attach asynchronously, so the first broadcast can reach
+	 * the frontend before a new peer has published a timeline and be dropped. */
+	uint32_t stateGeneration;
+	uint32_t peerModeAcks;
+	uint32_t peerLineAcks;
+	uint64_t nextStateAnnounce;
+	uint32_t peerCartridges;
+	uint32_t peerCartridgesSeen;
+	uint32_t peerMultibootReady;
+	bool multibootReady;
+
+	/* A transfer the master has announced but whose start tick this machine has
+	 * not reached yet. Its word is latched when it gets there, not when the
+	 * message arrives. */
+	bool pendingStart;
+	uint64_t pendingTick;
+
+	bool transferActive;
+	uint64_t finishTick;
+	/* After a child's multiplayer completion, allow its serial IRQ handler one
+	 * scheduler grain to publish the next SIOMLT_SEND word. */
+	uint64_t wordReadyTick;
+	uint16_t multiData[MAX_GBAS];
+
+	/* Normal mode's words, indexed the same way. Kept apart from multiData
+	 * because they are 32 bits wide and because a mode change must never have
+	 * one read as the other. */
+	uint32_t normalData[MAX_GBAS];
+
+	uint32_t received;
+};
+
+void GBASIONetlinkCreate(struct GBASIONetlink*, const struct retro_link_interface* link, unsigned port);
+void GBASIONetlinkDestroy(struct GBASIONetlink*);
+
+CXX_GUARD_END
+
+#endif
