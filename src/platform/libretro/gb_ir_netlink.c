@@ -13,7 +13,7 @@
 /* Names the emulated wire, and keeps it apart from the link cable's: the two
  * share a bus implementation and nothing else. Byte for byte what gambatte's
  * driver calls it. */
-#define GBIR_PROTOCOL "gbc-ir-1"
+#define GBIR_PROTOCOL "gbc-ir"
 
 /* The Game Boy's timing rate: see GBNL_CLOCK_RATE. */
 #define GBIR_CLOCK_RATE 8388608ull

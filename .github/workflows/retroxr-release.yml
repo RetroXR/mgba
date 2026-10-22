@@ -9,7 +9,7 @@
 # single-cartridge play work, and a GameCube lead reach a handheld at all.
 #
 # The Game Boy Color's infrared port rides the same bus, on link port 1 as
-# `gbc-ir-1` (src/platform/libretro/gb_ir_netlink.c): upstream called RP an
+# `gbc-ir` (src/platform/libretro/gb_ir_netlink.c): upstream called RP an
 # unknown register. With it came two faults a loaded state used to leave behind
 # in a Game Boy -- a timer period read back over its flags byte, and both link
 # drivers taken off the schedule for good.
@@ -389,7 +389,7 @@ jobs:
           whose scanner disagreed with the one it was taken from.
 
           It carries the Game Boy Color's infrared port, on the same bus as
-          \`gbc-ir-1\`: Mystery Gift between two units in view of each other,
+          \`gbc-ir\`: Mystery Gift between two units in view of each other,
           whether both are run by this core or one of them by gambatte. And it
           mends two things a loaded state did to a Game Boy: the timer's period
           was read back over its flags byte, which wrecked the timer whenever

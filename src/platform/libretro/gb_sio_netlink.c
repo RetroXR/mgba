@@ -9,10 +9,10 @@
 #include <mgba/internal/gb/io.h>
 
 /* Names the emulated wire. Byte for byte what gambatte's driver calls it, so the
- * two can be joined by one cable; a Game Boy Advance's is "gba-sio-1" and the
+ * two can be joined by one cable; a Game Boy Advance's is "gba-sio" and the
  * bus refuses to join the two, which is the refusal the sockets make in the
  * room. */
-#define GBNL_PROTOCOL "gb-sio-1"
+#define GBNL_PROTOCOL "gb-sio"
 
 /* The Game Boy's timing rate. A bit is GBSIOCyclesPerTransfer ticks and takes
  * twice that outside double speed, which puts a normal transfer at 8192 ticks

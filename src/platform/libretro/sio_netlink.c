@@ -8,12 +8,12 @@
 #include <mgba/internal/gba/gba.h>
 #include <mgba/internal/gba/io.h>
 
-#define NETLINK_PROTOCOL "gba-sio-1"
+#define NETLINK_PROTOCOL "gba-sio"
 
 /* The GameCube lead. A different conversation entirely from the link cable, so a
  * different name: the bus refuses to join two ports that do not agree on one,
  * which is what stops a link lead being pushed into a GameCube socket. */
-#define JOYLINK_PROTOCOL "gba-joy-1"
+#define JOYLINK_PROTOCOL "gba-joy"
 
 /* A JOY bus byte takes eight bit-times on the wire, and mGBA's own Dolphin
  * driver counts them at 115200 bits per second. That figure is wrong about the
