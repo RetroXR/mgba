@@ -288,7 +288,7 @@ jobs:
   # either break the x86_64 link or pin the core to a Homebrew prefix.
   macos:
     name: macOS ${{ matrix.arch }}
-    runs-on: macos-14
+    runs-on: macos-15
     strategy:
       matrix:
         include:
