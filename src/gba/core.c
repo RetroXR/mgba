@@ -1816,12 +1816,11 @@ static void _GBAVLPReset(struct mCore* core) {
 static bool _GBAVLPLoadROM(struct mCore* core, struct VFile* vf) {
 	struct GBACore* gbacore = (struct GBACore*) core;
 	gbacore->logContext = mVideoLogContextCreate(NULL);
-	if (!mVideoLogContextLoad(gbacore->logContext, vf)) {
+	if (!mVideoLogContextLoad(gbacore->logContext, vf) || !mVideoLoggerAttachChannel(gbacore->vlProxy.logger, gbacore->logContext, 0)) {
 		mVideoLogContextDestroy(core, gbacore->logContext, false);
 		gbacore->logContext = NULL;
 		return false;
 	}
-	mVideoLoggerAttachChannel(gbacore->vlProxy.logger, gbacore->logContext, 0);
 	return true;
 }
 
