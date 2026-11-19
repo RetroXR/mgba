@@ -15,17 +15,29 @@ CXX_GUARD_START
 struct mCore;
 
 /*
- * Publishes the e-Reader's card slot to the frontend as libretro disk control.
+ * Publishes the e-Reader's card slot to the frontend, twice over.
  *
- * A dotcode strip is removable media: the frontend replaces the current image
- * with a strip and closes the tray, and the tray-close edge is what queues the
- * card for the game to scan. Nothing here is a disc; disk control is simply the
- * only interface libretro has for handing a running core a new medium.
+ * As a reader through the accessory media interface (accessory_media.h), which
+ * is what it is: the frontend hands it a dotcode strip and the strip is swiped
+ * in the next retro_run (EReaderAccessoryPoll).
+ *
+ * And as libretro disk control, for a frontend without that interface: the
+ * frontend replaces the current image with a strip and closes the tray, and the
+ * tray-close edge is what queues the card for the game to scan. Nothing here is
+ * a disc; disk control is simply the only interface upstream libretro has for
+ * handing a running core a new medium.
  *
  * Call once after core->reset(), and only when the loaded cartridge has
  * HW_EREADER: a frontend told about disk control shows a disc menu for it.
  */
 void EReaderDiskPublish(struct mCore* core, retro_environment_t environCallback);
+
+/* From retro_run, before the frame: swipe a strip the accessory media
+ * interface handed over. Nothing without a publish. */
+void EReaderAccessoryPoll(void);
+
+/* At unload, before EReaderDiskReset: tell the frontend the reader is gone. */
+void EReaderAccessoryWithdraw(retro_environment_t environCallback);
 
 /* Drop every strip and reset the slot. Safe to call without a publish. */
 void EReaderDiskReset(void);

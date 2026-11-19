@@ -611,6 +611,9 @@ void retro_run(void) {
 	if (deferredSetup) {
 		_doDeferredSetup();
 	}
+#ifdef M_CORE_GBA
+	EReaderAccessoryPoll();
+#endif
 	uint16_t keys;
 
 	inputPollCallback();
@@ -1191,6 +1194,9 @@ void retro_unload_game(void) {
 		GBIRNetlinkDestroy(&gbIrNetlink);
 		gbIrNetlinkAttached = false;
 	}
+#endif
+#ifdef M_CORE_GBA
+	EReaderAccessoryWithdraw(environCallback);
 #endif
 	EReaderDiskReset();
 	mCoreConfigDeinit(&core->config);
