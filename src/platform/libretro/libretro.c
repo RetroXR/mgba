@@ -495,7 +495,7 @@ void retro_init(void) {
 #endif
 	environCallback(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &fmt);
 
-	/* The link interface (libretro/RetroArch#19454), at its EXPERIMENTAL number. */
+	/* Link interface (libretro/RetroArch#19454). */
 	memset(&link, 0, sizeof(link));
 	if (environCallback(RETRO_ENVIRONMENT_GET_LINK_INTERFACE, &link)) {
 		static struct retro_link_interface stored;
