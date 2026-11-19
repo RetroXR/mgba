@@ -495,12 +495,9 @@ void retro_init(void) {
 #endif
 	environCallback(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &fmt);
 
-	/* Probe the experimental number first and the plain one after, so a core
-	 * built today keeps working against a frontend that has since adopted the
-	 * unflagged command. */
+	/* The link interface (libretro/RetroArch#19454), at its EXPERIMENTAL number. */
 	memset(&link, 0, sizeof(link));
-	if (environCallback(RETRO_ENVIRONMENT_GET_LINK_INTERFACE, &link) ||
-	    environCallback(RETRO_ENVIRONMENT_GET_LINK_INTERFACE_FINAL, &link)) {
+	if (environCallback(RETRO_ENVIRONMENT_GET_LINK_INTERFACE, &link)) {
 		static struct retro_link_interface stored;
 		stored = link;
 		linkInterface = &stored;
