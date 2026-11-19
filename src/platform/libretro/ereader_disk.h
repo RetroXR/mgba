@@ -17,7 +17,7 @@ struct mCore;
 /*
  * Publishes the e-Reader's card slot to the frontend, twice over.
  *
- * As a reader through the accessory media interface (accessory_media.h), which
+ * As a reader through the accessory interface (accessory_interface.h), which
  * is what it is: the frontend hands it a dotcode strip and the strip is swiped
  * in the next retro_run (EReaderAccessoryPoll).
  *
@@ -32,7 +32,7 @@ struct mCore;
  */
 void EReaderDiskPublish(struct mCore* core, retro_environment_t environCallback);
 
-/* From retro_run, before the frame: swipe a strip the accessory media
+/* From retro_run, before the frame: swipe a strip the accessory
  * interface handed over. Nothing without a publish. */
 void EReaderAccessoryPoll(void);
 

@@ -4,7 +4,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 #include "ereader_disk.h"
-#include "accessory_media.h"
+#include "accessory_interface.h"
 
 #include <mgba/core/core.h>
 #include <mgba/gba/interface.h>
@@ -26,7 +26,7 @@ static unsigned eCount = 1;
 static unsigned eIndex = 0;
 static bool eEjected = false;
 
-/* A strip handed over through the accessory media interface, waiting for the
+/* A strip handed over through the accessory interface, waiting for the
  * next retro_run. The interface lets a frontend call from any thread, and the
  * reader is fed on the core's own. */
 static Mutex ePendingMutex;
@@ -208,12 +208,12 @@ static bool _erGetImageLabel(unsigned index, char* label, size_t len) {
 	return true;
 }
 
-/* The same card slot through the accessory media interface, which says what it
+/* The same card slot through the accessory interface, which says what it
  * is: a reader that takes a dot-code strip for a moment. A strip handed over is
  * read and checked here and swiped in the next retro_run, with the same rule as
  * the tray-close edge above: a swipe the game is not asking for does nothing. */
 static const struct retro_accessory_reader eAccessoryReaders[] = {
-	{ RETRO_ACCESSORY_MEDIA_DOT_CODE, RETRO_ACCESSORY_PORT_CONSOLE, RETRO_ACCESSORY_READER_MOMENTARY, "e-Reader" },
+	{ RETRO_ACCESSORY_DOT_CODE, RETRO_ACCESSORY_PORT_CONSOLE, RETRO_ACCESSORY_READER_MOMENTARY, "e-Reader" },
 };
 
 static bool _amInsert(unsigned reader, const char* path) {
@@ -269,14 +269,14 @@ void EReaderAccessoryPoll(void) {
 }
 
 static void _publishAccessory(retro_environment_t environCallback, bool on) {
-	static struct retro_accessory_media_interface iface;
-	iface.interface_version = RETRO_ACCESSORY_MEDIA_INTERFACE_VERSION;
+	static struct retro_accessory_interface iface;
+	iface.interface_version = RETRO_ACCESSORY_INTERFACE_VERSION;
 	iface.num_readers = on ? 1 : 0;
 	iface.readers = on ? eAccessoryReaders : NULL;
 	iface.insert = _amInsert;
 	iface.remove = _amRemove;
 	iface.is_present = _amIsPresent;
-	environCallback(RETRO_ENVIRONMENT_SET_ACCESSORY_MEDIA_INTERFACE, &iface);
+	environCallback(RETRO_ENVIRONMENT_SET_ACCESSORY_INTERFACE, &iface);
 }
 
 void EReaderAccessoryWithdraw(retro_environment_t environCallback) {
@@ -306,7 +306,7 @@ void EReaderDiskPublish(struct mCore* core, retro_environment_t environCallback)
 	EReaderDiskReset();
 	eCore = core;
 
-	/* Both: a frontend that knows the accessory media interface gets a card
+	/* Both: a frontend that knows the accessory interface gets a card
 	 * reader rather than a disc drive, and RetroArch, which does not, keeps the
 	 * disk control below. */
 	_publishAccessory(environCallback, true);
